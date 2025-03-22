@@ -21,93 +21,182 @@
  * Toronto, Ontario, Canada
  */
 
-package org.caisi.core.web;
-
-import java.util.Date;
-import java.util.List;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
-import org.apache.struts.action.ActionForm;
-import org.apache.struts.action.ActionForward;
-import org.apache.struts.action.ActionMapping;
-import org.apache.struts.action.ActionMessage;
-import org.apache.struts.action.ActionMessages;
-import org.apache.struts.action.DynaActionForm;
-import org.apache.struts.actions.DispatchAction;
-import org.oscarehr.common.dao.SystemMessageDao;
-import org.oscarehr.common.model.SystemMessage;
-
-public class SystemMessageAction extends DispatchAction {
-
-	private SystemMessageDao systemMessageDao = null;
-	
-	public void setSystemMessageDao(SystemMessageDao systemMessageDao) {
-		this.systemMessageDao = systemMessageDao;
-	}
-	
-	public ActionForward unspecified(ActionMapping mapping,ActionForm form, HttpServletRequest request, HttpServletResponse response) {
-		return list(mapping,form,request,response);
-	}
-		
-	public ActionForward list(ActionMapping mapping,ActionForm form, HttpServletRequest request, HttpServletResponse response) {
-		List<SystemMessage> activeMessages = systemMessageDao.findAll();
-		request.setAttribute("ActiveMessages",activeMessages);
-		return mapping.findForward("list");
-	}
-	
-	public ActionForward edit(ActionMapping mapping,ActionForm form, HttpServletRequest request, HttpServletResponse response) {
-		DynaActionForm systemMessageForm = (DynaActionForm)form;
-		String messageId = request.getParameter("id");
-		
-		if(messageId != null) {
-			SystemMessage msg = systemMessageDao.find(Integer.parseInt(messageId));
-			
-			if(msg == null) {
-				ActionMessages webMessage = new ActionMessages();
-				webMessage.add(ActionMessages.GLOBAL_MESSAGE,new ActionMessage("system_message.missing"));
-				saveErrors(request,webMessage);
-				return list(mapping,form,request,response);
-			}
-			systemMessageForm.set("system_message",msg);
-			request.getSession().setAttribute("systemMessageId",messageId);
-		} else {
-			request.getSession().setAttribute("systemMessageId","");
-		}
-		
-		return mapping.findForward("edit");
-	}
-
-	public ActionForward save(ActionMapping mapping,ActionForm form, HttpServletRequest request, HttpServletResponse response) {
-		DynaActionForm userForm = (DynaActionForm)form;
-		SystemMessage msg = (SystemMessage)userForm.get("system_message");
-		msg.setCreationDate(new Date());
-		int messageId = 0;
-		String messageId_str= (String)request.getSession().getAttribute("systemMessageId");
-		if(messageId_str!=null && messageId_str!="") {
-			messageId = Integer.valueOf(messageId_str).intValue();
-		}
-		
-		if(messageId>0 || (msg.getId() != null && msg.getId().intValue()>0)) {			
-			msg.setId(messageId);
-			systemMessageDao.merge(msg);
-		} else {
-			systemMessageDao.persist(msg);
-		}
-		
-        ActionMessages messages = new ActionMessages();
-        messages.add(ActionMessages.GLOBAL_MESSAGE,new ActionMessage("system_message.saved"));
-        saveMessages(request,messages);
-
-        return list(mapping,form,request,response);
-	}
-	
-	public ActionForward view(ActionMapping mapping,ActionForm form, HttpServletRequest request, HttpServletResponse response) {
-		List<SystemMessage> messages = systemMessageDao.findAll();
-		if(messages.size()>0) {
-			request.setAttribute("messages",messages);
-		}
-		return mapping.findForward("view");
-	}
-}
+package org.caisi.core.web;                                                                                                                                                                                                              
+                                                                                                                                                                                                                                         
+import java.util.Date;                                                                                                                                                                                                                   
+import java.util.List;                                                                                                                                                                                                                   
+                                                                                                                                                                                                                                         
+import javax.servlet.http.HttpServletRequest;                                                                                                                                                                                            
+import javax.servlet.http.HttpServletResponse;                                                                                                                                                                                           
+                                                                                                                                                                                                                                         
+import org.apache.logging.log4j.Logger;                                                                                                                                                                                                  
+import org.oscarehr.common.dao.SystemMessageDao;                                                                                                                                                                                         
+import org.oscarehr.common.model.SystemMessage;                                                                                                                                                                                          
+import org.oscarehr.util.MiscUtils;                                                                                                                                                                                                      
+import org.owasp.encoder.Encode;                                                                                                                                                                                                         
+                                                                                                                                                                                                                                         
+import com.opensymphony.xwork2.ActionSupport;                                                                                                                                                                                            
+import org.apache.struts2.ServletActionContext;                                                                                                                                                                                          
+                                                                                                                                                                                                                                         
+public class SystemMessage2Action extends ActionSupport {                                                                                                                                                                                
+    private static final long serialVersionUID = 1L;                                                                                                                                                                                     
+                                                                                                                                                                                                                                         
+    private static final Logger logger = MiscUtils.getLogger();                                                                                                                                                                          
+                                                                                                                                                                                                                                         
+    HttpServletRequest request = ServletActionContext.getRequest();                                                                                                                                                                      
+    HttpServletResponse response = ServletActionContext.getResponse();                                                                                                                                                                   
+                                                                                                                                                                                                                                         
+    private SystemMessageDao systemMessageDao = null;                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    public void setSystemMessageDao(SystemMessageDao systemMessageDao) {                                                                                                                                                                 
+        this.systemMessageDao = systemMessageDao;                                                                                                                                                                                        
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    public String execute() {                                                                                                                                                                                                            
+        if (systemMessageDao == null) {                                                                                                                                                                                                  
+            logger.error("SystemMessageDao is not initialized");                                                                                                                                                                         
+            addActionError("System error: Database access not available");                                                                                                                                                               
+            return ERROR;                                                                                                                                                                                                                
+        }                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                         
+        String mtd = request.getParameter("method");                                                                                                                                                                                     
+        if ("edit".equals(mtd)) {                                                                                                                                                                                                        
+            return edit();                                                                                                                                                                                                               
+        } else if ("save".equals(mtd)) {                                                                                                                                                                                                 
+            return save();                                                                                                                                                                                                               
+        } else if ("view".equals(mtd)) {                                                                                                                                                                                                 
+            return view();                                                                                                                                                                                                               
+        }                                                                                                                                                                                                                                
+        return list();                                                                                                                                                                                                                   
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    public String list() {                                                                                                                                                                                                               
+        try {                                                                                                                                                                                                                            
+            List<SystemMessage> activeMessages = systemMessageDao.findAll();                                                                                                                                                             
+            request.setAttribute("ActiveMessages", activeMessages);                                                                                                                                                                      
+            return "list";                                                                                                                                                                                                               
+        } catch (Exception e) {                                                                                                                                                                                                          
+            logger.error("Error retrieving system messages", e);                                                                                                                                                                         
+            addActionError("Error retrieving system messages");                                                                                                                                                                          
+            return ERROR;                                                                                                                                                                                                                
+        }                                                                                                                                                                                                                                
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    public String edit() {                                                                                                                                                                                                               
+        String messageId = request.getParameter("id");                                                                                                                                                                                   
+                                                                                                                                                                                                                                         
+        if (messageId != null && !messageId.trim().isEmpty()) {                                                                                                                                                                          
+            try {                                                                                                                                                                                                                        
+                int id = Integer.parseInt(messageId);                                                                                                                                                                                    
+                SystemMessage msg = systemMessageDao.find(id);                                                                                                                                                                           
+                                                                                                                                                                                                                                         
+                if (msg == null) {                                                                                                                                                                                                       
+                    addActionMessage(getText("system_message.missing"));                                                                                                                                                                 
+                    return list();                                                                                                                                                                                                       
+                }                                                                                                                                                                                                                        
+                                                                                                                                                                                                                                         
+                // Store only the ID in session, not the entire message                                                                                                                                                                  
+                request.getSession().setAttribute("systemMessageId", messageId);                                                                                                                                                         
+            } catch (NumberFormatException e) {                                                                                                                                                                                          
+                logger.error("Invalid message ID: " + messageId, e);                                                                                                                                                                     
+                addActionError("Invalid message ID");                                                                                                                                                                                    
+                return list();                                                                                                                                                                                                           
+            } catch (Exception e) {                                                                                                                                                                                                      
+                logger.error("Error retrieving message with ID: " + messageId, e);                                                                                                                                                       
+                addActionError("Error retrieving message");                                                                                                                                                                              
+                return list();                                                                                                                                                                                                           
+            }                                                                                                                                                                                                                            
+        } else {                                                                                                                                                                                                                         
+            // Creating a new message                                                                                                                                                                                                    
+            request.getSession().setAttribute("systemMessageId", "");                                                                                                                                                                    
+        }                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                         
+        return "edit";                                                                                                                                                                                                                   
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    public String save() {                                                                                                                                                                                                               
+        try {                                                                                                                                                                                                                            
+            SystemMessage msg = this.getSystem_message();                                                                                                                                                                                
+            if (msg == null) {                                                                                                                                                                                                           
+                addActionError("No message data provided");                                                                                                                                                                              
+                return list();                                                                                                                                                                                                           
+            }                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                         
+            msg.setCreationDate(new Date());                                                                                                                                                                                             
+            int messageId = 0;                                                                                                                                                                                                           
+            String messageId_str = (String) request.getSession().getAttribute("systemMessageId");                                                                                                                                        
+                                                                                                                                                                                                                                         
+            if (messageId_str != null && !messageId_str.isEmpty()) {                                                                                                                                                                     
+                try {                                                                                                                                                                                                                    
+                    messageId = Integer.parseInt(messageId_str);                                                                                                                                                                         
+                } catch (NumberFormatException e) {                                                                                                                                                                                      
+                    logger.error("Invalid message ID in session: " + messageId_str, e);                                                                                                                                                  
+                    addActionError("Invalid message ID");                                                                                                                                                                                
+                    return list();                                                                                                                                                                                                       
+                }                                                                                                                                                                                                                        
+            }                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                         
+            // Validate message content                                                                                                                                                                                                  
+            if (msg.getMessage() == null || msg.getMessage().trim().isEmpty()) {                                                                                                                                                         
+                addActionError("Message content cannot be empty");                                                                                                                                                                       
+                return "edit";                                                                                                                                                                                                           
+            }                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                         
+            // Sanitize message content (if needed)                                                                                                                                                                                      
+            // This depends on your application's requirements                                                                                                                                                                           
+            // msg.setMessage(sanitizeHtml(msg.getMessage()));                                                                                                                                                                           
+                                                                                                                                                                                                                                         
+            if (messageId > 0 || (msg.getId() != null && msg.getId().intValue() > 0)) {                                                                                                                                                  
+                msg.setId(messageId);                                                                                                                                                                                                    
+                systemMessageDao.merge(msg);                                                                                                                                                                                             
+            } else {                                                                                                                                                                                                                     
+                systemMessageDao.persist(msg);                                                                                                                                                                                           
+            }                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                         
+            // Clear session data                                                                                                                                                                                                        
+            request.getSession().removeAttribute("systemMessageId");                                                                                                                                                                     
+                                                                                                                                                                                                                                         
+            addActionMessage(getText("system_message.saved"));                                                                                                                                                                           
+            return list();                                                                                                                                                                                                               
+        } catch (Exception e) {                                                                                                                                                                                                          
+            logger.error("Error saving system message", e);                                                                                                                                                                              
+            addActionError("Error saving message: " + e.getMessage());                                                                                                                                                                   
+            return "edit";                                                                                                                                                                                                               
+        }                                                                                                                                                                                                                                
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    public String view() {                                                                                                                                                                                                               
+        try {                                                                                                                                                                                                                            
+            List<SystemMessage> messages = systemMessageDao.findAll();                                                                                                                                                                   
+            if (messages != null && !messages.isEmpty()) {                                                                                                                                                                               
+                request.setAttribute("messages", messages);                                                                                                                                                                              
+            }                                                                                                                                                                                                                            
+            return "view";                                                                                                                                                                                                               
+        } catch (Exception e) {                                                                                                                                                                                                          
+            logger.error("Error retrieving system messages for view", e);                                                                                                                                                                
+            addActionError("Error retrieving messages");                                                                                                                                                                                 
+            return ERROR;                                                                                                                                                                                                                
+        }                                                                                                                                                                                                                                
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    /**                                                                                                                                                                                                                                  
+     * Sanitizes HTML content to prevent XSS attacks                                                                                                                                                                                     
+     * This is a simple implementation - consider using a library like OWASP Java Encoder                                                                                                                                                
+     */                                                                                                                                                                                                                                  
+    private String sanitizeHtml(String html) {                                                                                                                                                                                           
+        if (html == null) {                                                                                                                                                                                                              
+            return null;                                                                                                                                                                                                                 
+        }                                                                                                                                                                                                                                
+        return Encode.forHtml(html);                                                                                                                                                                                                     
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    private SystemMessage system_message;                                                                                                                                                                                                
+                                                                                                                                                                                                                                         
+    public SystemMessage getSystem_message() {                                                                                                                                                                                           
+        return system_message;                                                                                                                                                                                                           
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    public void setSystem_message(SystemMessage system_message) {                                                                                                                                                                        
+        this.system_message = system_message;                                                                                                                                                                                            
+    }                                                                                                                                                                                                                                    
+}       
